@@ -30,6 +30,7 @@ import com.tencentcloudapi.trocket.v20230308.models.DescribeMessageTraceRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeMessageTraceResponse;
 import com.tencentcloudapi.trocket.v20230308.models.MessageItem;
 import com.tencentcloudapi.trocket.v20230308.models.MessageTraceItem;
+import com.tencentcloudapi.trocket.v20230308.models.ModifyConsumerGroupRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeTopicListByGroupRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeTopicListByGroupResponse;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeConsumerGroupListRequest;
@@ -52,6 +53,8 @@ import org.apache.rocketmq.studio.common.domain.enums.TopicType;
 import org.apache.rocketmq.studio.common.exception.BusinessException;
 import org.apache.rocketmq.studio.instance.InstanceRepository;
 import org.apache.rocketmq.studio.instance.InstanceVO;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.ResetConsumerOffsetPreviewVO;
@@ -1070,4 +1073,69 @@ class TencentInstanceProviderTest {
         assertThat(trace.getConsumerStatus().get(0).getDeliveryStatus())
                 .isEqualTo(DeliveryStatus.pending);
     }
+
+    @Test
+    void consumerGroupSettingsShouldMapTencentManagementFieldsTest() throws Exception {
+        DescribeConsumerGroupResponse response = tencentSettingsResponse(16L, true, false, "orders consumers");
+        when(client.DescribeConsumerGroup(any())).thenReturn(response);
+
+        ConsumerGroupSettingsVO settings = provider.getConsumerGroupSettings(STUDIO_INSTANCE_ID, "GID_orders");
+
+        assertThat(settings.getGroupName()).isEqualTo("GID_orders");
+        assertThat(settings.getRetryMaxTimes()).isEqualTo(16);
+        assertThat(settings.getConsumeEnable()).isTrue();
+        assertThat(settings.getConsumeMessageOrderly()).isFalse();
+        assertThat(settings.getRemark()).isEqualTo("orders consumers");
+        assertThat(settings.getEditableFields())
+                .containsExactly("retryMaxTimes", "consumeEnable", "consumeMessageOrderly", "remark");
+    }
+
+    @Test
+    void updateConsumerGroupSettingsShouldMergeTencentSupportedFieldsTest() throws Exception {
+        DescribeConsumerGroupResponse current = tencentSettingsResponse(16L, true, false, "old remark");
+        DescribeConsumerGroupResponse updated = tencentSettingsResponse(20L, false, true, "new remark");
+        when(client.DescribeConsumerGroup(any())).thenReturn(current, updated);
+        when(client.ModifyConsumerGroup(any())).thenReturn(null);
+        ConsumerGroupSettingsCommand command = new ConsumerGroupSettingsCommand(
+                null, 20, false, true, null,
+                null, null, null, null, "new remark");
+
+        ConsumerGroupSettingsVO result = provider.updateConsumerGroupSettings(
+                STUDIO_INSTANCE_ID, "GID_orders", command);
+
+        ArgumentCaptor<ModifyConsumerGroupRequest> captor = ArgumentCaptor.forClass(ModifyConsumerGroupRequest.class);
+        verify(client).ModifyConsumerGroup(captor.capture());
+        ModifyConsumerGroupRequest request = captor.getValue();
+        assertThat(request.getInstanceId()).isEqualTo(CLOUD_INSTANCE_ID);
+        assertThat(request.getConsumerGroup()).isEqualTo("GID_orders");
+        assertThat(request.getMaxRetryTimes()).isEqualTo(20L);
+        assertThat(request.getConsumeEnable()).isFalse();
+        assertThat(request.getConsumeMessageOrderly()).isTrue();
+        assertThat(request.getRemark()).isEqualTo("new remark");
+        assertThat(result.getRetryMaxTimes()).isEqualTo(20);
+        assertThat(result.getConsumeEnable()).isFalse();
+        assertThat(result.getConsumeMessageOrderly()).isTrue();
+    }
+
+    @Test
+    void updateConsumerGroupSettingsShouldRejectUnsupportedTencentFieldsTest() {
+        ConsumerGroupSettingsCommand command = new ConsumerGroupSettingsCommand(
+                null, 16, null, null, null,
+                null, null, null, 100L, null);
+
+        assertThatThrownBy(() -> provider.updateConsumerGroupSettings(STUDIO_INSTANCE_ID, "GID_orders", command))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("only support retryMaxTimes");
+    }
+
+    private static DescribeConsumerGroupResponse tencentSettingsResponse(long retryMaxTimes,
+            boolean consumeEnable, boolean consumeMessageOrderly, String remark) {
+        DescribeConsumerGroupResponse response = new DescribeConsumerGroupResponse();
+        response.setMaxRetryTimes(retryMaxTimes);
+        response.setConsumeEnable(consumeEnable);
+        response.setConsumeMessageOrderly(consumeMessageOrderly);
+        response.setRemark(remark);
+        return response;
+    }
+
 }

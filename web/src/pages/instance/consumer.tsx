@@ -71,6 +71,7 @@ import { TOPIC_TYPE_MAP, PROTOCOL_MAP } from '../../constants/theme';
 import { formatDateTime } from '../../utils/format';
 import type {
   ConsumerGroup,
+  ConsumerGroupSettings,
   ConsumerInstance,
   ConsumerStackTrace,
   QueueProgress,
@@ -272,15 +273,11 @@ const ConsumerPageContent = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<ConsumerGroup | null>(null);
   const [settingsGroup, setSettingsGroup] = useState<ConsumerGroup | null>(null);
+  const [settingsSnapshot, setSettingsSnapshot] = useState<ConsumerGroupSettings | null>(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSubmitting, setSettingsSubmitting] = useState(false);
-  const [settingsForm] = Form.useForm<{
-    retryQueueNums: number;
-    retryMaxTimes: number;
-    consumeEnable?: boolean;
-    consumeMessageOrderly?: boolean;
-    consumeBroadcastEnable?: boolean;
-  }>();
+  const [settingsForm] =
+    Form.useForm<Omit<ConsumerGroupSettings, 'groupName' | 'editableFields'>>();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [form] = Form.useForm();
   const [dataTypeValue, setDataTypeValue] = useState<string | undefined>(undefined);
@@ -504,10 +501,12 @@ const ConsumerPageContent = ({
     if (!selectedInstanceId) return;
     const requestId = ++settingsRequestIdRef.current;
     setSettingsGroup(group);
+    setSettingsSnapshot(null);
     setSettingsLoading(true);
     try {
       const settings = await getConsumerGroupSettings(group.name, selectedInstanceId);
       if (requestId === settingsRequestIdRef.current) {
+        setSettingsSnapshot(settings);
         settingsForm.setFieldsValue(settings);
         originalSettingsRef.current = {
           consumeEnable: settings.consumeEnable,
@@ -537,7 +536,7 @@ const ConsumerPageContent = ({
   };
 
   const saveSettings = async () => {
-    if (!settingsGroup || !selectedInstanceId) return;
+    if (!settingsGroup || !selectedInstanceId || !settingsSnapshot) return;
     const values = await settingsForm.validateFields();
     const original = originalSettingsRef.current;
     const risks: string[] = [];
@@ -567,20 +566,27 @@ const ConsumerPageContent = ({
     }
     setSettingsSubmitting(true);
     try {
+      const editableValues = Object.fromEntries(
+        settingsSnapshot.editableFields
+          .map((field) => [field, values[field as keyof typeof values]])
+          .filter(([, value]) => value !== undefined),
+      );
       const saved = await updateConsumerGroupSettings({
         instanceId: selectedInstanceId,
         name: settingsGroup.name,
-        ...values,
+        ...editableValues,
       });
+      setSettingsSnapshot(saved);
+      settingsForm.setFieldsValue(saved);
       setGroups((current) =>
         current.map((group) =>
-          group.name === settingsGroup.name
+          group.name === settingsGroup.name && saved.retryMaxTimes !== undefined
             ? { ...group, retryMaxTimes: saved.retryMaxTimes }
             : group,
         ),
       );
       setSelectedGroup((current) =>
-        current && current.name === settingsGroup.name
+        current && current.name === settingsGroup.name && saved.retryMaxTimes !== undefined
           ? { ...current, retryMaxTimes: saved.retryMaxTimes }
           : current,
       );
@@ -1608,6 +1614,8 @@ const ConsumerPageContent = ({
           setSelectedGroup(null);
           setShowOnlyInconsistent(false);
           setSettingsGroup(null);
+          setSettingsSnapshot(null);
+          originalSettingsRef.current = null;
           setSettingsLoading(false);
           settingsForm.resetFields();
         }}
@@ -2086,48 +2094,104 @@ const ConsumerPageContent = ({
                     <span>配置</span>
                   </Space>
                 ),
-                disabled: isCloudInstance,
                 children: (
                   <Spin spinning={settingsLoading}>
-                    <Form form={settingsForm} layout="vertical" style={{ maxWidth: 480 }}>
+                    <Form form={settingsForm} layout="vertical" style={{ maxWidth: 520 }}>
                       <Form.Item label="Group 名称">
                         <Text strong>{selectedGroup.name}</Text>
                       </Form.Item>
-                      <Form.Item
-                        label="重试队列数"
-                        name="retryQueueNums"
-                        rules={[{ required: true, message: '请输入重试队列数' }]}
-                      >
-                        <InputNumber min={1} max={128} style={{ width: '100%' }} />
-                      </Form.Item>
-                      <Form.Item
-                        label="最大重试次数"
-                        name="retryMaxTimes"
-                        rules={[{ required: true, message: '请输入最大重试次数' }]}
-                      >
-                        <InputNumber min={1} max={128} style={{ width: '100%' }} />
-                      </Form.Item>
-                      <Form.Item label="启用消费" name="consumeEnable" valuePropName="checked">
-                        <Switch />
-                      </Form.Item>
-                      <Form.Item
-                        label="顺序消费"
-                        name="consumeMessageOrderly"
-                        valuePropName="checked"
-                      >
-                        <Switch />
-                      </Form.Item>
-                      <Form.Item
-                        label="广播消费"
-                        name="consumeBroadcastEnable"
-                        valuePropName="checked"
-                      >
-                        <Switch />
-                      </Form.Item>
+                      {isCloudInstance && settingsSnapshot && (
+                        <Alert
+                          showIcon
+                          type="info"
+                          message="云厂商配置由 Provider OpenAPI 管理，仅提交当前实例支持的字段"
+                          style={{ marginBottom: 16 }}
+                        />
+                      )}
+                      {settingsSnapshot?.editableFields.includes('retryQueueNums') && (
+                        <Form.Item
+                          label="重试队列数"
+                          name="retryQueueNums"
+                          rules={[{ required: true, message: '请输入重试队列数' }]}
+                        >
+                          <InputNumber min={1} max={128} style={{ width: '100%' }} />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('retryMaxTimes') && (
+                        <Form.Item
+                          label="最大重试次数"
+                          name="retryMaxTimes"
+                          rules={[{ required: true, message: '请输入最大重试次数' }]}
+                        >
+                          <InputNumber
+                            min={0}
+                            max={isCloudInstance ? 1000 : 128}
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('consumeEnable') && (
+                        <Form.Item label="启用消费" name="consumeEnable" valuePropName="checked">
+                          <Switch />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('consumeMessageOrderly') ? (
+                        <Form.Item
+                          label="顺序消费"
+                          name="consumeMessageOrderly"
+                          valuePropName="checked"
+                        >
+                          <Switch />
+                        </Form.Item>
+                      ) : settingsSnapshot?.consumeMessageOrderly !== undefined ? (
+                        <Form.Item label="投递顺序">
+                          <Text>
+                            {settingsSnapshot.consumeMessageOrderly ? '顺序投递' : '并发投递'}
+                            （创建后不可修改）
+                          </Text>
+                        </Form.Item>
+                      ) : null}
+                      {settingsSnapshot?.editableFields.includes('consumeBroadcastEnable') && (
+                        <Form.Item
+                          label="广播消费"
+                          name="consumeBroadcastEnable"
+                          valuePropName="checked"
+                        >
+                          <Switch />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.retryPolicy && (
+                        <Form.Item label="重试策略">
+                          <Text>{settingsSnapshot.retryPolicy}（创建后不可修改）</Text>
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('fixedIntervalRetryTime') && (
+                        <Form.Item label="固定重试间隔（秒）" name="fixedIntervalRetryTime">
+                          <InputNumber min={1} style={{ width: '100%' }} />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('deadLetterTargetTopic') && (
+                        <Form.Item label="死信目标 Topic" name="deadLetterTargetTopic">
+                          <Input allowClear placeholder="留空则使用云厂商默认死信策略" />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('maxReceiveTps') && (
+                        <Form.Item label="最大接收 TPS" name="maxReceiveTps">
+                          <InputNumber min={0} style={{ width: '100%' }} />
+                        </Form.Item>
+                      )}
+                      {settingsSnapshot?.editableFields.includes('remark') && (
+                        <Form.Item label="备注" name="remark">
+                          <Input.TextArea maxLength={128} showCount rows={3} />
+                        </Form.Item>
+                      )}
                       <Form.Item style={{ marginBottom: 0 }}>
                         <Button
                           type="primary"
                           loading={settingsSubmitting}
+                          disabled={
+                            !settingsSnapshot || settingsSnapshot.editableFields.length === 0
+                          }
                           onClick={() => void saveSettings()}
                         >
                           保存

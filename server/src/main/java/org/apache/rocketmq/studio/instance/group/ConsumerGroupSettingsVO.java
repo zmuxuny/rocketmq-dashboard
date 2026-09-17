@@ -21,15 +21,36 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class ConsumerGroupSettingsVO {
     private String groupName;
-    private int retryQueueNums;
-    private int retryMaxTimes;
-    private boolean consumeEnable;
-    private boolean consumeMessageOrderly;
-    private boolean consumeBroadcastEnable;
+    private Integer retryQueueNums;
+    private Integer retryMaxTimes;
+    private Boolean consumeEnable;
+    private Boolean consumeMessageOrderly;
+    private Boolean consumeBroadcastEnable;
+    private String retryPolicy;
+    private Integer fixedIntervalRetryTime;
+    private String deadLetterTargetTopic;
+    private Long maxReceiveTps;
+    private String remark;
+    @Builder.Default
+    private List<String> editableFields = List.of();
+
+    public boolean isConsumeEnable() {
+        return Boolean.TRUE.equals(consumeEnable);
+    }
+
+    public boolean isConsumeMessageOrderly() {
+        return Boolean.TRUE.equals(consumeMessageOrderly);
+    }
+
+    public boolean isConsumeBroadcastEnable() {
+        return Boolean.TRUE.equals(consumeBroadcastEnable);
+    }
 }

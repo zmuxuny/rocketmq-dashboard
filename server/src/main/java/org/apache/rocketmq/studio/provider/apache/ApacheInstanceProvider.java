@@ -19,6 +19,8 @@ package org.apache.rocketmq.studio.provider.apache;
 import org.apache.rocketmq.studio.common.domain.PageResult;
 import org.apache.rocketmq.studio.common.domain.enums.InstanceVendor;
 import org.apache.rocketmq.studio.instance.InstanceRepository;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.ResetConsumerOffsetPreviewVO;
@@ -63,6 +65,7 @@ public class ApacheInstanceProvider implements InstanceProvider {
         return Set.of(
                 InstanceCapability.TOPIC_MANAGEMENT,
                 InstanceCapability.CONSUMER_GROUP_MANAGEMENT,
+                InstanceCapability.CONSUMER_GROUP_SETTINGS,
                 InstanceCapability.MESSAGE_QUERY,
                 InstanceCapability.MESSAGE_TRACE,
                 InstanceCapability.ACL_MANAGEMENT,
@@ -138,6 +141,17 @@ public class ApacheInstanceProvider implements InstanceProvider {
     @Override
     public ConsumerGroupVO updateConsumerGroup(String instanceId, ConsumerGroupVO group) {
         return adminClient.updateConsumerGroup(group);
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO getConsumerGroupSettings(String instanceId, String groupName) {
+        return adminClient.getConsumerGroupSettings(instanceId, groupName);
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String groupName,
+                                                                 ConsumerGroupSettingsCommand command) {
+        return adminClient.updateConsumerGroupSettings(instanceId, groupName, command);
     }
 
     @Override

@@ -21,6 +21,9 @@ import com.aliyun.sdk.service.rocketmq20220801.models.CreateConsumerGroupRequest
 import com.aliyun.sdk.service.rocketmq20220801.models.CreateConsumerGroupResponse;
 import com.aliyun.sdk.service.rocketmq20220801.models.CreateConsumerGroupResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.DataTopicLagMapValue;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupResponse;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupLagResponse;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupLagResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetTraceResponse;
@@ -37,6 +40,9 @@ import com.aliyun.sdk.service.rocketmq20220801.models.ListTopicsResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.ResetConsumeOffsetRequest;
 import com.aliyun.sdk.service.rocketmq20220801.models.ResetConsumeOffsetResponse;
 import com.aliyun.sdk.service.rocketmq20220801.models.ResetConsumeOffsetResponseBody;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupResponse;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupResponseBody;
 import org.apache.rocketmq.studio.common.domain.enums.ConsumeType;
 import org.apache.rocketmq.studio.common.domain.enums.SubscriptionMode;
 import org.apache.rocketmq.studio.common.domain.enums.InstanceVendor;
@@ -45,6 +51,8 @@ import org.apache.rocketmq.studio.common.domain.enums.TopicType;
 import org.apache.rocketmq.studio.common.exception.BusinessException;
 import org.apache.rocketmq.studio.instance.InstanceRepository;
 import org.apache.rocketmq.studio.instance.InstanceVO;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.ResetConsumerOffsetPreviewVO;
@@ -785,6 +793,114 @@ class AliyunInstanceProviderTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("code")
                 .isEqualTo(400);
+    }
+
+
+    @Test
+    void consumerGroupSettingsShouldMapAliyunManagementFieldsTest() {
+        stubInstance();
+        stubCallThrough();
+        GetConsumerGroupResponseBody.ConsumeRetryPolicy retry =
+                GetConsumerGroupResponseBody.ConsumeRetryPolicy.builder()
+                        .retryPolicy("FixedRetryPolicy")
+                        .maxRetryTimes(12)
+                        .fixedIntervalRetryTime(30)
+                        .deadLetterTargetTopic("DLQ_orders")
+                        .build();
+        GetConsumerGroupResponse response = GetConsumerGroupResponse.create().toBuilder()
+                .statusCode(200)
+                .body(GetConsumerGroupResponseBody.builder()
+                        .data(GetConsumerGroupResponseBody.Data.builder()
+                                .consumerGroupId("GID_orders")
+                                .deliveryOrderType("Orderly")
+                                .consumeRetryPolicy(retry)
+                                .maxReceiveTps(500L)
+                                .remark("orders consumers")
+                                .build())
+                        .build())
+                .build();
+        when(asyncClient.getConsumerGroup(any(GetConsumerGroupRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(response));
+
+        ConsumerGroupSettingsVO settings = provider.getConsumerGroupSettings(STUDIO_INSTANCE_ID, "GID_orders");
+
+        assertThat(settings.getGroupName()).isEqualTo("GID_orders");
+        assertThat(settings.getRetryMaxTimes()).isEqualTo(12);
+        assertThat(settings.getRetryPolicy()).isEqualTo("FixedRetryPolicy");
+        assertThat(settings.getFixedIntervalRetryTime()).isEqualTo(30);
+        assertThat(settings.getDeadLetterTargetTopic()).isEqualTo("DLQ_orders");
+        assertThat(settings.getMaxReceiveTps()).isEqualTo(500L);
+        assertThat(settings.getRemark()).isEqualTo("orders consumers");
+        assertThat(settings.getConsumeMessageOrderly()).isTrue();
+        assertThat(settings.getEditableFields())
+                .contains("retryMaxTimes", "fixedIntervalRetryTime", "deadLetterTargetTopic", "maxReceiveTps", "remark")
+                .doesNotContain("retryPolicy", "consumeMessageOrderly", "consumeEnable", "retryQueueNums");
+    }
+
+    @Test
+    void updateConsumerGroupSettingsShouldPreserveAliyunImmutablePolicyTest() {
+        stubInstance();
+        stubCallThrough();
+        GetConsumerGroupResponse current = aliyunGroupResponse("GID_orders", "FixedRetryPolicy", 12, 30,
+                "DLQ_orders", 500L, "old remark", "Orderly");
+        when(asyncClient.getConsumerGroup(any(GetConsumerGroupRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(current));
+        when(asyncClient.updateConsumerGroup(any(UpdateConsumerGroupRequest.class)))
+                .thenReturn(CompletableFuture.completedFuture(UpdateConsumerGroupResponse.create().toBuilder()
+                        .statusCode(200)
+                        .body(UpdateConsumerGroupResponseBody.builder().success(true).data(true).build())
+                        .build()));
+        ConsumerGroupSettingsCommand command = new ConsumerGroupSettingsCommand(
+                null, 20, null, null, null,
+                null, 45, "DLQ_custom", 900L, "new remark");
+
+        provider.updateConsumerGroupSettings(STUDIO_INSTANCE_ID, "GID_orders", command);
+
+        ArgumentCaptor<UpdateConsumerGroupRequest> captor = ArgumentCaptor.forClass(UpdateConsumerGroupRequest.class);
+        verify(asyncClient).updateConsumerGroup(captor.capture());
+        UpdateConsumerGroupRequest request = captor.getValue();
+        assertThat(request.getInstanceId()).isEqualTo(CLOUD_INSTANCE_ID);
+        assertThat(request.getConsumerGroupId()).isEqualTo("GID_orders");
+        assertThat(request.getDeliveryOrderType()).isNull();
+        assertThat(request.getConsumeRetryPolicy().getRetryPolicy()).isEqualTo("FixedRetryPolicy");
+        assertThat(request.getConsumeRetryPolicy().getMaxRetryTimes()).isEqualTo(20);
+        assertThat(request.getConsumeRetryPolicy().getFixedIntervalRetryTime()).isEqualTo(45);
+        assertThat(request.getConsumeRetryPolicy().getDeadLetterTargetTopic()).isEqualTo("DLQ_custom");
+        assertThat(request.getMaxReceiveTps()).isEqualTo(900L);
+        assertThat(request.getRemark()).isEqualTo("new remark");
+    }
+
+    @Test
+    void updateConsumerGroupSettingsShouldRejectAliyunImmutableFieldsTest() {
+        ConsumerGroupSettingsCommand command = new ConsumerGroupSettingsCommand(
+                null, 12, null, true, null,
+                null, null, null, null, null);
+
+        assertThatThrownBy(() -> provider.updateConsumerGroupSettings(STUDIO_INSTANCE_ID, "GID_orders", command))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("delivery order and retry policy are immutable");
+    }
+
+    private static GetConsumerGroupResponse aliyunGroupResponse(String groupName, String retryPolicy,
+            int maxRetryTimes, int fixedInterval, String deadLetterTopic, long maxReceiveTps,
+            String remark, String deliveryOrderType) {
+        return GetConsumerGroupResponse.create().toBuilder()
+                .statusCode(200)
+                .body(GetConsumerGroupResponseBody.builder()
+                        .data(GetConsumerGroupResponseBody.Data.builder()
+                                .consumerGroupId(groupName)
+                                .deliveryOrderType(deliveryOrderType)
+                                .consumeRetryPolicy(GetConsumerGroupResponseBody.ConsumeRetryPolicy.builder()
+                                        .retryPolicy(retryPolicy)
+                                        .maxRetryTimes(maxRetryTimes)
+                                        .fixedIntervalRetryTime(fixedInterval)
+                                        .deadLetterTargetTopic(deadLetterTopic)
+                                        .build())
+                                .maxReceiveTps(maxReceiveTps)
+                                .remark(remark)
+                                .build())
+                        .build())
+                .build();
     }
 
     private void stubInstance() {

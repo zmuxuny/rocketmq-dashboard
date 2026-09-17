@@ -143,11 +143,17 @@ export interface ConsumerGroupDetail extends ConsumerGroup {
 
 export interface ConsumerGroupSettings {
   groupName: string;
-  retryQueueNums: number;
-  retryMaxTimes: number;
+  retryQueueNums?: number;
+  retryMaxTimes?: number;
   consumeEnable?: boolean;
   consumeMessageOrderly?: boolean;
   consumeBroadcastEnable?: boolean;
+  retryPolicy?: string;
+  fixedIntervalRetryTime?: number;
+  deadLetterTargetTopic?: string;
+  maxReceiveTps?: number;
+  remark?: string;
+  editableFields: string[];
 }
 
 export interface QueueProgress {
@@ -359,7 +365,10 @@ export async function getConsumerGroupSettings(name: string, instanceId: string)
 }
 
 export async function updateConsumerGroupSettings(
-  data: Omit<ConsumerGroupSettings, 'groupName'> & { instanceId: string; name: string },
+  data: Omit<Partial<ConsumerGroupSettings>, 'groupName' | 'editableFields'> & {
+    instanceId: string;
+    name: string;
+  },
 ) {
   const res = await client.post<{ data: ConsumerGroupSettings }>('/groups/settings', data);
   return res.data.data;

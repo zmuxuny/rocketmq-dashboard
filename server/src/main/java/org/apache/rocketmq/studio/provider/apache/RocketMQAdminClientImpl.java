@@ -637,7 +637,10 @@ public class RocketMQAdminClientImpl implements AdminClient {
                 return ConsumerGroupSettingsVO.builder().groupName(name).retryQueueNums(config.getRetryQueueNums())
                         .retryMaxTimes(config.getRetryMaxTimes()).consumeEnable(config.isConsumeEnable())
                         .consumeMessageOrderly(config.isConsumeMessageOrderly())
-                        .consumeBroadcastEnable(config.isConsumeBroadcastEnable()).build();
+                        .consumeBroadcastEnable(config.isConsumeBroadcastEnable())
+                        .editableFields(List.of("retryQueueNums", "retryMaxTimes", "consumeEnable",
+                                "consumeMessageOrderly", "consumeBroadcastEnable"))
+                        .build();
             } catch (BusinessException exception) {
                 throw exception;
             } catch (Exception exception) {
@@ -649,6 +652,10 @@ public class RocketMQAdminClientImpl implements AdminClient {
     @Override
     public ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String name,
                                                                  ConsumerGroupSettingsCommand command) {
+        if (command.retryQueueNums() == null || command.retryMaxTimes() == null) {
+            throw new BusinessException(400,
+                    "retryQueueNums and retryMaxTimes are required for Apache consumer group settings");
+        }
         return executeForInstance(instanceId, admin -> {
             int totalBrokers = 0;
             int updatedBrokers = 0;
@@ -703,6 +710,8 @@ public class RocketMQAdminClientImpl implements AdminClient {
                         .consumeEnable(applied.isConsumeEnable())
                         .consumeMessageOrderly(applied.isConsumeMessageOrderly())
                         .consumeBroadcastEnable(applied.isConsumeBroadcastEnable())
+                        .editableFields(List.of("retryQueueNums", "retryMaxTimes", "consumeEnable",
+                                "consumeMessageOrderly", "consumeBroadcastEnable"))
                         .build();
             } catch (BusinessException exception) {
                 recordAudit("UPDATE_GROUP_SETTINGS", name, "updated " + updatedBrokers + "/" + totalBrokers

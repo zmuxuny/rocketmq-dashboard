@@ -20,6 +20,8 @@ import org.apache.rocketmq.studio.common.domain.PageResult;
 import org.apache.rocketmq.studio.common.domain.enums.InstanceVendor;
 import org.apache.rocketmq.studio.common.exception.BusinessException;
 import org.apache.rocketmq.studio.common.util.Pagination;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.ResetConsumerOffsetPreviewVO;
@@ -105,6 +107,15 @@ public interface InstanceProvider {
 
     default ConsumerGroupVO updateConsumerGroup(String instanceId, ConsumerGroupVO group) {
         return createConsumerGroup(instanceId, group);
+    }
+
+    default ConsumerGroupSettingsVO getConsumerGroupSettings(String instanceId, String groupName) {
+        throw new BusinessException(501, "Consumer group settings are not supported by this provider");
+    }
+
+    default ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String groupName,
+                                                                  ConsumerGroupSettingsCommand command) {
+        throw new BusinessException(501, "Consumer group settings are not supported by this provider");
     }
 
     void deleteConsumerGroup(String instanceId, String groupName);

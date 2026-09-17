@@ -22,9 +22,21 @@ package org.apache.rocketmq.studio.instance.group;
  * consumption switch means "preserve the current broker value".
  */
 public record ConsumerGroupSettingsCommand(
-        int retryQueueNums,
-        int retryMaxTimes,
+        Integer retryQueueNums,
+        Integer retryMaxTimes,
         Boolean consumeEnable,
         Boolean consumeMessageOrderly,
-        Boolean consumeBroadcastEnable) {
+        Boolean consumeBroadcastEnable,
+        String retryPolicy,
+        Integer fixedIntervalRetryTime,
+        String deadLetterTargetTopic,
+        Long maxReceiveTps,
+        String remark) {
+
+    public ConsumerGroupSettingsCommand(Integer retryQueueNums, Integer retryMaxTimes,
+                                        Boolean consumeEnable, Boolean consumeMessageOrderly,
+                                        Boolean consumeBroadcastEnable) {
+        this(retryQueueNums, retryMaxTimes, consumeEnable, consumeMessageOrderly, consumeBroadcastEnable,
+                null, null, null, null, null);
+    }
 }

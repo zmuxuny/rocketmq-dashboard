@@ -20,6 +20,9 @@ import com.aliyun.sdk.service.rocketmq20220801.models.CreateConsumerGroupRequest
 import com.aliyun.sdk.service.rocketmq20220801.models.CreateTopicRequest;
 import com.aliyun.sdk.service.rocketmq20220801.models.DeleteConsumerGroupRequest;
 import com.aliyun.sdk.service.rocketmq20220801.models.DeleteTopicRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupResponse;
+import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupLagRequest;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupLagResponse;
 import com.aliyun.sdk.service.rocketmq20220801.models.GetConsumerGroupLagResponseBody;
@@ -42,6 +45,9 @@ import com.aliyun.sdk.service.rocketmq20220801.models.ListTopicsRequest;
 import com.aliyun.sdk.service.rocketmq20220801.models.ListTopicsResponse;
 import com.aliyun.sdk.service.rocketmq20220801.models.ListTopicsResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.ResetConsumeOffsetRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupRequest;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupResponse;
+import com.aliyun.sdk.service.rocketmq20220801.models.UpdateConsumerGroupResponseBody;
 import com.aliyun.sdk.service.rocketmq20220801.models.UpdateTopicRequest;
 import org.springframework.util.StringUtils;
 
@@ -51,6 +57,8 @@ import org.apache.rocketmq.studio.common.exception.BusinessException;
 import org.apache.rocketmq.studio.common.util.Pagination;
 import org.apache.rocketmq.studio.instance.InstanceRepository;
 import org.apache.rocketmq.studio.instance.InstanceVO;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.SubscriptionEntryVO;
@@ -101,6 +109,7 @@ public class AliyunInstanceProvider implements InstanceProvider {
         return Set.of(
                 InstanceCapability.TOPIC_MANAGEMENT,
                 InstanceCapability.CONSUMER_GROUP_MANAGEMENT,
+                InstanceCapability.CONSUMER_GROUP_SETTINGS,
                 InstanceCapability.MESSAGE_QUERY,
                 InstanceCapability.MESSAGE_TRACE,
                 InstanceCapability.ACL_MANAGEMENT);
@@ -381,6 +390,110 @@ public class AliyunInstanceProvider implements InstanceProvider {
             return ORDERLY_DELIVERY_ORDER_TYPE;
         }
         return DEFAULT_DELIVERY_ORDER_TYPE;
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO getConsumerGroupSettings(String instanceId, String groupName) {
+        GetConsumerGroupResponseBody.Data data = getConsumerGroupData(resolve(instanceId), groupName);
+        GetConsumerGroupResponseBody.ConsumeRetryPolicy retry = data.getConsumeRetryPolicy();
+        return ConsumerGroupSettingsVO.builder()
+                .groupName(StringUtils.hasText(data.getConsumerGroupId()) ? data.getConsumerGroupId() : groupName)
+                .retryMaxTimes(retry == null ? null : retry.getMaxRetryTimes())
+                .consumeMessageOrderly(ORDERLY_DELIVERY_ORDER_TYPE.equalsIgnoreCase(data.getDeliveryOrderType()))
+                .retryPolicy(retry == null ? null : retry.getRetryPolicy())
+                .fixedIntervalRetryTime(retry == null ? null : retry.getFixedIntervalRetryTime())
+                .deadLetterTargetTopic(retry == null ? null : retry.getDeadLetterTargetTopic())
+                .maxReceiveTps(data.getMaxReceiveTps())
+                .remark(data.getRemark())
+                .editableFields(aliyunEditableFields(retry))
+                .build();
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String groupName,
+                                                                 ConsumerGroupSettingsCommand command) {
+        rejectUnsupportedAliyunSettings(command);
+        Context ctx = resolve(instanceId);
+        GetConsumerGroupResponseBody.Data current = getConsumerGroupData(ctx, groupName);
+        GetConsumerGroupResponseBody.ConsumeRetryPolicy currentRetry = current.getConsumeRetryPolicy();
+        String retryPolicy = normalizeRetryPolicy(command.retryPolicy(), currentRetry, current.getDeliveryOrderType());
+        Integer maxRetryTimes = command.retryMaxTimes() != null ? command.retryMaxTimes()
+                : currentRetry == null ? DEFAULT_MAX_RETRY_TIMES : currentRetry.getMaxRetryTimes();
+        Integer fixedInterval = command.fixedIntervalRetryTime() != null ? command.fixedIntervalRetryTime()
+                : currentRetry == null ? null : currentRetry.getFixedIntervalRetryTime();
+        if (FIXED_RETRY_POLICY.equals(retryPolicy) && fixedInterval == null) {
+            fixedInterval = DEFAULT_FIXED_RETRY_INTERVAL_SECONDS;
+        }
+        String deadLetterTarget = command.deadLetterTargetTopic() != null ? command.deadLetterTargetTopic()
+                : currentRetry == null ? null : currentRetry.getDeadLetterTargetTopic();
+        UpdateConsumerGroupRequest.ConsumeRetryPolicy retryRequest =
+                UpdateConsumerGroupRequest.ConsumeRetryPolicy.builder()
+                        .retryPolicy(retryPolicy)
+                        .maxRetryTimes(maxRetryTimes)
+                        .fixedIntervalRetryTime(FIXED_RETRY_POLICY.equals(retryPolicy) ? fixedInterval : null)
+                        .deadLetterTargetTopic(deadLetterTarget)
+                        .build();
+        UpdateConsumerGroupRequest request = UpdateConsumerGroupRequest.builder()
+                .instanceId(ctx.cloudInstanceId())
+                .consumerGroupId(groupName)
+                .consumeRetryPolicy(retryRequest)
+                .maxReceiveTps(command.maxReceiveTps() != null ? command.maxReceiveTps() : current.getMaxReceiveTps())
+                .remark(command.remark() != null ? command.remark() : current.getRemark())
+                .build();
+        UpdateConsumerGroupResponse response = clientFactory.call(ctx.credentialId(), ctx.regionId(),
+                client -> client.updateConsumerGroup(request));
+        UpdateConsumerGroupResponseBody body = response == null ? null : response.getBody();
+        if (body == null || !Boolean.TRUE.equals(body.getSuccess()) || !Boolean.TRUE.equals(body.getData())) {
+            String detail = body == null ? "empty response"
+                    : StringUtils.hasText(body.getMessage()) ? body.getMessage() : body.getCode();
+            throw new BusinessException(502, "Aliyun consumer group update failed: " + detail);
+        }
+        return getConsumerGroupSettings(instanceId, groupName);
+    }
+
+    private GetConsumerGroupResponseBody.Data getConsumerGroupData(Context ctx, String groupName) {
+        GetConsumerGroupRequest request = GetConsumerGroupRequest.builder()
+                .instanceId(ctx.cloudInstanceId())
+                .consumerGroupId(groupName)
+                .build();
+        GetConsumerGroupResponse response = clientFactory.call(ctx.credentialId(), ctx.regionId(),
+                client -> client.getConsumerGroup(request));
+        GetConsumerGroupResponseBody body = response == null ? null : response.getBody();
+        if (body == null || body.getData() == null) {
+            throw new BusinessException(502, "Aliyun consumer group settings returned an empty response");
+        }
+        return body.getData();
+    }
+
+    private static void rejectUnsupportedAliyunSettings(ConsumerGroupSettingsCommand command) {
+        if (command.retryQueueNums() != null || command.consumeEnable() != null
+                || command.consumeBroadcastEnable() != null || command.consumeMessageOrderly() != null
+                || command.retryPolicy() != null) {
+            throw new BusinessException(400,
+                    "Aliyun settings do not support retryQueueNums or consumption switches; delivery order and retry policy are immutable");
+        }
+    }
+
+    private static List<String> aliyunEditableFields(GetConsumerGroupResponseBody.ConsumeRetryPolicy retry) {
+        List<String> fields = new ArrayList<>(List.of(
+                "retryMaxTimes", "deadLetterTargetTopic", "maxReceiveTps", "remark"));
+        if (retry != null && FIXED_RETRY_POLICY.equals(retry.getRetryPolicy())) {
+            fields.add("fixedIntervalRetryTime");
+        }
+        return fields;
+    }
+
+    private static String normalizeRetryPolicy(String requested,
+                                                GetConsumerGroupResponseBody.ConsumeRetryPolicy current,
+                                                String deliveryOrderType) {
+        String policy = StringUtils.hasText(requested) ? requested.trim()
+                : current != null && StringUtils.hasText(current.getRetryPolicy()) ? current.getRetryPolicy()
+                : ORDERLY_DELIVERY_ORDER_TYPE.equalsIgnoreCase(deliveryOrderType)
+                        ? FIXED_RETRY_POLICY : DEFAULT_RETRY_POLICY;
+        if (!DEFAULT_RETRY_POLICY.equals(policy) && !FIXED_RETRY_POLICY.equals(policy)) {
+            throw new BusinessException(400, "Unsupported Aliyun retry policy: " + policy);
+        }
+        return policy;
     }
 
     @Override

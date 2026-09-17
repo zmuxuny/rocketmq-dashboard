@@ -180,18 +180,38 @@ export async function getConsumerGroupSettings(
   name: string,
   instanceId: string,
 ): Promise<ConsumerGroupSettings> {
-  if (isMockMode()) return { groupName: name, retryQueueNums: 1, retryMaxTimes: 16 };
+  if (isMockMode())
+    return {
+      groupName: name,
+      retryQueueNums: 1,
+      retryMaxTimes: 16,
+      editableFields: ['retryQueueNums', 'retryMaxTimes'],
+    };
   return metadataApi.getConsumerGroupSettings(name, instanceId);
 }
 
 export async function updateConsumerGroupSettings(
-  data: Omit<ConsumerGroupSettings, 'groupName'> & { instanceId: string; name: string },
+  data: Omit<Partial<ConsumerGroupSettings>, 'groupName' | 'editableFields'> & {
+    instanceId: string;
+    name: string;
+  },
 ) {
   if (isMockMode())
     return {
       groupName: data.name,
       retryQueueNums: data.retryQueueNums,
       retryMaxTimes: data.retryMaxTimes,
+      consumeEnable: data.consumeEnable,
+      consumeMessageOrderly: data.consumeMessageOrderly,
+      consumeBroadcastEnable: data.consumeBroadcastEnable,
+      retryPolicy: data.retryPolicy,
+      fixedIntervalRetryTime: data.fixedIntervalRetryTime,
+      deadLetterTargetTopic: data.deadLetterTargetTopic,
+      maxReceiveTps: data.maxReceiveTps,
+      remark: data.remark,
+      editableFields: Object.keys(data).filter(
+        (field) => field !== 'instanceId' && field !== 'name',
+      ),
     };
   return metadataApi.updateConsumerGroupSettings(data);
 }

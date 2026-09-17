@@ -1365,11 +1365,13 @@ describe('Consumer page', () => {
       groupName: 'remote-cg',
       retryQueueNums: 1,
       retryMaxTimes: 16,
+      editableFields: ['retryQueueNums', 'retryMaxTimes'],
     });
     vi.mocked(consumerService.updateConsumerGroupSettings).mockResolvedValue({
       groupName: 'remote-cg',
       retryQueueNums: 2,
       retryMaxTimes: 8,
+      editableFields: ['retryQueueNums', 'retryMaxTimes'],
     });
     const user = userEvent.setup();
     renderWithProviders(<ConsumerPage />);
@@ -1415,6 +1417,13 @@ describe('Consumer page', () => {
       consumeEnable: false,
       consumeMessageOrderly: true,
       consumeBroadcastEnable: false,
+      editableFields: [
+        'retryQueueNums',
+        'retryMaxTimes',
+        'consumeEnable',
+        'consumeMessageOrderly',
+        'consumeBroadcastEnable',
+      ],
     });
     vi.mocked(consumerService.updateConsumerGroupSettings).mockResolvedValue({
       groupName: 'remote-cg',
@@ -1423,6 +1432,13 @@ describe('Consumer page', () => {
       consumeEnable: true,
       consumeMessageOrderly: true,
       consumeBroadcastEnable: false,
+      editableFields: [
+        'retryQueueNums',
+        'retryMaxTimes',
+        'consumeEnable',
+        'consumeMessageOrderly',
+        'consumeBroadcastEnable',
+      ],
     });
     const user = userEvent.setup();
     renderWithProviders(<ConsumerPage />);
@@ -1453,6 +1469,71 @@ describe('Consumer page', () => {
       });
     });
     expect((await screen.findAllByText('消费组配置已保存')).length).toBeGreaterThan(0);
+  });
+
+  it('edits only supported Tencent cloud consumer group settings', async () => {
+    vi.mocked(instanceService.listInstances).mockResolvedValue([
+      {
+        id: 1,
+        name: 'instance-1',
+        remark: '',
+        type: 'CLOUD',
+        vendor: 'TENCENT',
+        endpoint: '',
+        cloudInstanceId: 'rmq-cloud-1',
+        topicCount: 0,
+        consumerGroupCount: 1,
+        gmtCreate: '2026-01-01T00:00:00Z',
+        gmtModified: '2026-01-01T00:00:00Z',
+      },
+    ]);
+    vi.mocked(consumerService.getConsumerGroupSettings).mockResolvedValue({
+      groupName: 'remote-cg',
+      retryMaxTimes: 16,
+      consumeEnable: true,
+      consumeMessageOrderly: false,
+      remark: 'old remark',
+      editableFields: ['retryMaxTimes', 'consumeEnable', 'consumeMessageOrderly', 'remark'],
+    });
+    vi.mocked(consumerService.updateConsumerGroupSettings).mockResolvedValue({
+      groupName: 'remote-cg',
+      retryMaxTimes: 20,
+      consumeEnable: true,
+      consumeMessageOrderly: false,
+      remark: 'new remark',
+      editableFields: ['retryMaxTimes', 'consumeEnable', 'consumeMessageOrderly', 'remark'],
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<ConsumerPage />);
+
+    const row = await screen.findByRole('row', { name: /remote-cg/ });
+    await user.click(within(row).getByRole('button', { name: /详\s*情/ }));
+    const dialog = await screen.findByRole('dialog', { name: /remote-cg/ });
+    const settingsTab = within(dialog).getByRole('tab', { name: /配\s*置/ });
+    expect(settingsTab).not.toHaveAttribute('aria-disabled', 'true');
+    await user.click(settingsTab);
+
+    expect(
+      await within(dialog).findByText(/云厂商配置由 Provider OpenAPI 管理/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('重试队列数')).not.toBeInTheDocument();
+    const maxRetryInput = within(dialog).getByLabelText('最大重试次数');
+    await user.clear(maxRetryInput);
+    await user.type(maxRetryInput, '20');
+    const remark = within(dialog).getByLabelText('备注');
+    await user.clear(remark);
+    await user.type(remark, 'new remark');
+    await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+    await waitFor(() => {
+      expect(consumerService.updateConsumerGroupSettings).toHaveBeenCalledWith({
+        instanceId: 'instance-1',
+        name: 'remote-cg',
+        retryMaxTimes: 20,
+        consumeEnable: true,
+        consumeMessageOrderly: false,
+        remark: 'new remark',
+      });
+    });
   });
 
   it('renders an unknown (-1) lag as unavailable in the table and the lag detail', async () => {
@@ -1510,11 +1591,13 @@ describe('Consumer page', () => {
       groupName: string;
       retryQueueNums: number;
       retryMaxTimes: number;
+      editableFields: string[];
     }>();
     const secondSettings = deferred<{
       groupName: string;
       retryQueueNums: number;
       retryMaxTimes: number;
+      editableFields: string[];
     }>();
     vi.mocked(consumerService.listConsumerGroupPage).mockResolvedValue(
       groupPage([group, otherGroup]),
@@ -1550,14 +1633,24 @@ describe('Consumer page', () => {
     });
 
     await act(async () => {
-      secondSettings.resolve({ groupName: 'other-cg', retryQueueNums: 4, retryMaxTimes: 12 });
+      secondSettings.resolve({
+        groupName: 'other-cg',
+        retryQueueNums: 4,
+        retryMaxTimes: 12,
+        editableFields: ['retryQueueNums', 'retryMaxTimes'],
+      });
     });
     await waitFor(() => {
       expect(within(secondDialog).getByLabelText('重试队列数')).toHaveValue('4');
     });
 
     await act(async () => {
-      firstSettings.resolve({ groupName: 'remote-cg', retryQueueNums: 1, retryMaxTimes: 16 });
+      firstSettings.resolve({
+        groupName: 'remote-cg',
+        retryQueueNums: 1,
+        retryMaxTimes: 16,
+        editableFields: ['retryQueueNums', 'retryMaxTimes'],
+      });
     });
     expect(within(secondDialog).getByLabelText('重试队列数')).toHaveValue('4');
     expect(within(secondDialog).getByLabelText('最大重试次数')).toHaveValue('12');

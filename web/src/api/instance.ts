@@ -23,6 +23,7 @@ export type InstanceType = 'CLOUD' | 'PROXY_LOCAL' | 'PROXY_CLUSTER' | 'DIRECT';
 export type InstanceCapability =
   | 'TOPIC_MANAGEMENT'
   | 'CONSUMER_GROUP_MANAGEMENT'
+  | 'CONSUMER_GROUP_SETTINGS'
   | 'MESSAGE_QUERY'
   | 'MESSAGE_TRACE'
   | 'ACL_MANAGEMENT'

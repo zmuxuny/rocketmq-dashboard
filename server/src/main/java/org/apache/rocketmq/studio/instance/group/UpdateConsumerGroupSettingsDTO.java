@@ -17,7 +17,6 @@
 package org.apache.rocketmq.studio.instance.group;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
 import lombok.Data;
 
@@ -27,13 +26,18 @@ public class UpdateConsumerGroupSettingsDTO {
     private String instanceId;
     @NotBlank(message = "name is required")
     private String name;
-    @NotNull(message = "retryQueueNums is required")
     @PositiveOrZero(message = "retryQueueNums must be zero or positive")
     private Integer retryQueueNums;
-    @NotNull(message = "retryMaxTimes is required")
     @PositiveOrZero(message = "retryMaxTimes must be zero or positive")
     private Integer retryMaxTimes;
     private Boolean consumeEnable;
     private Boolean consumeMessageOrderly;
     private Boolean consumeBroadcastEnable;
+    private String retryPolicy;
+    @PositiveOrZero(message = "fixedIntervalRetryTime must be zero or positive")
+    private Integer fixedIntervalRetryTime;
+    private String deadLetterTargetTopic;
+    @PositiveOrZero(message = "maxReceiveTps must be zero or positive")
+    private Long maxReceiveTps;
+    private String remark;
 }

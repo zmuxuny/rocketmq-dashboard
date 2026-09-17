@@ -22,6 +22,7 @@ package org.apache.rocketmq.studio.provider;
 public enum InstanceCapability {
     TOPIC_MANAGEMENT,
     CONSUMER_GROUP_MANAGEMENT,
+    CONSUMER_GROUP_SETTINGS,
     MESSAGE_QUERY,
     MESSAGE_TRACE,
     ACL_MANAGEMENT,

@@ -33,6 +33,7 @@ import com.tencentcloudapi.trocket.v20230308.models.DescribeMessageTraceRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeMessageTraceResponse;
 import com.tencentcloudapi.trocket.v20230308.models.MessageItem;
 import com.tencentcloudapi.trocket.v20230308.models.MessageTraceItem;
+import com.tencentcloudapi.trocket.v20230308.models.ModifyConsumerGroupRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeTopicListByGroupRequest;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeTopicListByGroupResponse;
 import com.tencentcloudapi.trocket.v20230308.models.DescribeTopicListRequest;
@@ -55,6 +56,8 @@ import org.apache.rocketmq.studio.common.exception.BusinessException;
 import org.apache.rocketmq.studio.common.util.Pagination;
 import org.apache.rocketmq.studio.instance.InstanceRepository;
 import org.apache.rocketmq.studio.instance.InstanceVO;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsCommand;
+import org.apache.rocketmq.studio.instance.group.ConsumerGroupSettingsVO;
 import org.apache.rocketmq.studio.instance.group.ConsumerGroupVO;
 import org.apache.rocketmq.studio.instance.group.QueueProgressVO;
 import org.apache.rocketmq.studio.instance.group.SubscriptionEntryVO;
@@ -142,6 +145,7 @@ public class TencentInstanceProvider implements InstanceProvider {
         return Set.of(
                 InstanceCapability.TOPIC_MANAGEMENT,
                 InstanceCapability.CONSUMER_GROUP_MANAGEMENT,
+                InstanceCapability.CONSUMER_GROUP_SETTINGS,
                 InstanceCapability.MESSAGE_QUERY,
                 InstanceCapability.MESSAGE_TRACE,
                 InstanceCapability.ACL_MANAGEMENT);
@@ -487,6 +491,62 @@ public class TencentInstanceProvider implements InstanceProvider {
         group.setGmtCreate(LocalDateTime.now());
         group.setGmtModified(LocalDateTime.now());
         return group;
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO getConsumerGroupSettings(String instanceId, String groupName) {
+        DescribeConsumerGroupResponse response = describeConsumerGroup(resolve(instanceId), groupName);
+        if (response == null) {
+            throw new BusinessException(502, "Tencent consumer group settings returned an empty response");
+        }
+        return ConsumerGroupSettingsVO.builder()
+                .groupName(groupName)
+                .retryMaxTimes(toInteger(response.getMaxRetryTimes()))
+                .consumeEnable(response.getConsumeEnable())
+                .consumeMessageOrderly(response.getConsumeMessageOrderly())
+                .remark(response.getRemark())
+                .editableFields(List.of("retryMaxTimes", "consumeEnable", "consumeMessageOrderly", "remark"))
+                .build();
+    }
+
+    @Override
+    public ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String groupName,
+                                                                 ConsumerGroupSettingsCommand command) {
+        rejectUnsupportedTencentSettings(command);
+        Context context = resolve(instanceId);
+        DescribeConsumerGroupResponse current = describeConsumerGroup(context, groupName);
+        if (current == null) {
+            throw new BusinessException(502, "Tencent consumer group settings returned an empty response");
+        }
+        ModifyConsumerGroupRequest request = new ModifyConsumerGroupRequest();
+        request.setInstanceId(context.cloudInstanceId());
+        request.setConsumerGroup(groupName);
+        request.setMaxRetryTimes(command.retryMaxTimes() != null
+                ? command.retryMaxTimes().longValue() : current.getMaxRetryTimes());
+        request.setConsumeEnable(command.consumeEnable() != null ? command.consumeEnable() : current.getConsumeEnable());
+        request.setConsumeMessageOrderly(command.consumeMessageOrderly() != null
+                ? command.consumeMessageOrderly() : current.getConsumeMessageOrderly());
+        request.setRemark(command.remark() != null ? command.remark() : current.getRemark());
+        clientFactory.call(context.credentialId(), context.regionId(), client -> client.ModifyConsumerGroup(request));
+        return getConsumerGroupSettings(instanceId, groupName);
+    }
+
+    private DescribeConsumerGroupResponse describeConsumerGroup(Context context, String groupName) {
+        requireGroupName(groupName);
+        DescribeConsumerGroupRequest request = new DescribeConsumerGroupRequest();
+        request.setInstanceId(context.cloudInstanceId());
+        request.setConsumerGroup(groupName);
+        return clientFactory.call(context.credentialId(), context.regionId(),
+                client -> client.DescribeConsumerGroup(request));
+    }
+
+    private static void rejectUnsupportedTencentSettings(ConsumerGroupSettingsCommand command) {
+        if (command.retryQueueNums() != null || command.consumeBroadcastEnable() != null
+                || command.retryPolicy() != null || command.fixedIntervalRetryTime() != null
+                || command.deadLetterTargetTopic() != null || command.maxReceiveTps() != null) {
+            throw new BusinessException(400,
+                    "Tencent settings only support retryMaxTimes, consumeEnable, consumeMessageOrderly and remark");
+        }
     }
 
     @Override

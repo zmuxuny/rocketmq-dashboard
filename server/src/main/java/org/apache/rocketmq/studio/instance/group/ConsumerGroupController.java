@@ -79,7 +79,9 @@ public class ConsumerGroupController {
             @Valid @RequestBody UpdateConsumerGroupSettingsDTO request) {
         ConsumerGroupSettingsCommand command = new ConsumerGroupSettingsCommand(
                 request.getRetryQueueNums(), request.getRetryMaxTimes(), request.getConsumeEnable(),
-                request.getConsumeMessageOrderly(), request.getConsumeBroadcastEnable());
+                request.getConsumeMessageOrderly(), request.getConsumeBroadcastEnable(), request.getRetryPolicy(),
+                request.getFixedIntervalRetryTime(), request.getDeadLetterTargetTopic(), request.getMaxReceiveTps(),
+                request.getRemark());
         return Result.ok(metadataService.updateConsumerGroupSettings(request.getInstanceId(), request.getName(),
                 command));
     }

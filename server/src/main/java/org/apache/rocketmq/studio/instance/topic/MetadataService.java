@@ -487,17 +487,19 @@ public class MetadataService {
     }
 
     public ConsumerGroupSettingsVO getConsumerGroupSettings(String instanceId, String name) {
-        instanceId = normalizeInstanceId(instanceId);
-        requireApacheInstance(instanceId);
-        return adminClient.getConsumerGroupSettings(instanceId, requireName(name, "consumer group name"));
+        String target = normalizeInstanceId(instanceId);
+        String groupName = requireName(name, "consumer group name");
+        return resolve(target).getConsumerGroupSettings(target, groupName);
     }
 
     public ConsumerGroupSettingsVO updateConsumerGroupSettings(String instanceId, String name,
                                                                  ConsumerGroupSettingsCommand command) {
-        instanceId = normalizeInstanceId(instanceId);
-        requireApacheInstance(instanceId);
+        String target = normalizeInstanceId(instanceId);
         String groupName = requireName(name, "consumer group name");
-        return adminClient.updateConsumerGroupSettings(instanceId, groupName, command);
+        InstanceProvider provider = resolve(target);
+        return executeWithAudit(provider, Operation.UPDATE_GROUP, ResourceType.GROUP, groupName, target,
+                consumerGroupSettingsDetail(command),
+                () -> provider.updateConsumerGroupSettings(target, groupName, command));
     }
 
 
@@ -815,6 +817,19 @@ public class MetadataService {
         return "consumeType=" + optionalDetail(group.getConsumeType())
                 + ", subscriptionMode=" + optionalDetail(group.getSubscriptionMode())
                 + ", retryMaxTimes=" + group.getRetryMaxTimes();
+    }
+
+    private String consumerGroupSettingsDetail(ConsumerGroupSettingsCommand command) {
+        return "retryQueueNums=" + optionalDetail(command.retryQueueNums())
+                + ", retryMaxTimes=" + optionalDetail(command.retryMaxTimes())
+                + ", consumeEnable=" + optionalDetail(command.consumeEnable())
+                + ", consumeMessageOrderly=" + optionalDetail(command.consumeMessageOrderly())
+                + ", consumeBroadcastEnable=" + optionalDetail(command.consumeBroadcastEnable())
+                + ", retryPolicy=" + optionalDetail(command.retryPolicy())
+                + ", fixedIntervalRetryTime=" + optionalDetail(command.fixedIntervalRetryTime())
+                + ", deadLetterTargetTopic=" + optionalDetail(command.deadLetterTargetTopic())
+                + ", maxReceiveTps=" + optionalDetail(command.maxReceiveTps())
+                + ", remark=" + optionalDetail(command.remark());
     }
 
     private String optionalDetail(Object value) {
