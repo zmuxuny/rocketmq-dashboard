@@ -112,33 +112,32 @@ const BubbleList = ({
 
   return (
     <>
-      {bubbles.map((bubble, index) =>
-        bubble.role === 'user' ? (
-          <UserBubble
-            key={`user-${bubble.turn ?? index}-${index}`}
-            text={bubbleText(bubble.blocks)}
-            createdAt={bubble.createdAt}
-          />
-        ) : (
-          <AssistantBubble
-            key={`assistant-${bubble.turn ?? index}-${index}`}
-            bubble={
-              index === continuationIndex
-                ? { ...bubble, blocks: continueRunBlocks(bubble.blocks, liveBlocks ?? []) }
-                : bubble
-            }
-            streaming={index === continuationIndex && streaming}
-            toolCatalog={toolCatalog}
-            model={model}
-            tokensPerSecond={
-              index === continuationIndex
-                ? liveTokensPerSecond
-                : (bubble.tokensPerSecond ??
-                  (index === lastAssistantIndex ? lastRunTokensPerSecond : null))
-            }
-          />
-        ),
-      )}
+      {bubbles.map((bubble, index) => (
+        // The wrapper is the minimap's anchor: a stable, queryable handle per transcript row that
+        // neither bubble component has to know about.
+        <div key={`bubble-${bubble.turn ?? index}-${index}`} data-bubble-index={index}>
+          {bubble.role === 'user' ? (
+            <UserBubble text={bubbleText(bubble.blocks)} createdAt={bubble.createdAt} />
+          ) : (
+            <AssistantBubble
+              bubble={
+                index === continuationIndex
+                  ? { ...bubble, blocks: continueRunBlocks(bubble.blocks, liveBlocks ?? []) }
+                  : bubble
+              }
+              streaming={index === continuationIndex && streaming}
+              toolCatalog={toolCatalog}
+              model={model}
+              tokensPerSecond={
+                index === continuationIndex
+                  ? liveTokensPerSecond
+                  : (bubble.tokensPerSecond ??
+                    (index === lastAssistantIndex ? lastRunTokensPerSecond : null))
+              }
+            />
+          )}
+        </div>
+      ))}
       {hasPendingUser && (
         <UserBubble
           key="user-pending"

@@ -82,6 +82,8 @@ function renderThread(props: {
   pendingUserText?: string | null;
   liveBlocks?: RenderBlock[];
   liveRunId?: number | null;
+  followups?: string[];
+  onFollowup?: (text: string) => void;
 }) {
   return render(
     <LangProvider>
@@ -92,6 +94,8 @@ function renderThread(props: {
         pendingUserText={props.pendingUserText}
         liveBlocks={props.liveBlocks}
         liveRunId={props.liveRunId}
+        followups={props.followups}
+        onFollowup={props.onFollowup}
       />
     </LangProvider>,
   );
@@ -448,5 +452,64 @@ describe('ChatThread', () => {
     );
 
     expect(screen.getByText('开始新的对话')).toBeInTheDocument();
+  });
+});
+
+describe('minimap', () => {
+  const transcript = (): Bubble[] => [
+    userBubble('查看集群状态'),
+    assistantBubble('集群正常，broker 两台在线。'),
+    userBubble('Topic 堆积 Top10'),
+    assistantBubble('堆积最高的是 T1，约 12 万条。'),
+    userBubble('诊断消费延迟'),
+  ];
+
+  it('rendersOneTickPerBubbleAndJumpsOnClickTest', () => {
+    renderThread({ bubbles: transcript() });
+
+    expect(screen.getAllByTestId('ai-minimap-tick')).toHaveLength(5);
+
+    scrollIntoView.mockClear();
+    fireEvent.click(screen.getAllByTestId('ai-minimap-tick')[3]);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it('staysHiddenForShortTranscriptsTest', () => {
+    renderThread({ bubbles: transcript().slice(0, 3) });
+
+    expect(screen.queryByTestId('ai-minimap')).not.toBeInTheDocument();
+  });
+});
+
+describe('follow-up chips', () => {
+  it('rendersTheSuggestionsAndSendsOneAsAnOrdinaryTurnTest', async () => {
+    const user = userEvent.setup();
+    const onFollowup = vi.fn();
+    renderThread({
+      bubbles: [
+        { role: 'user', blocks: appendText([], '查看集群状态'), createdAt: '2026-09-20T02:12:31' },
+        { role: 'assistant', blocks: appendText([], '集群正常。') },
+      ],
+      followups: ['查看消费位点', '列出 Topic'],
+      onFollowup,
+    });
+
+    const chips = screen.getAllByTestId('ai-followup-chip');
+    expect(chips).toHaveLength(2);
+    await user.click(chips[0]);
+    expect(onFollowup).toHaveBeenCalledWith('查看消费位点');
+  });
+
+  it('rendersNothingWithoutSuggestionsTest', () => {
+    renderThread({
+      bubbles: [
+        { role: 'user', blocks: appendText([], '查看集群状态'), createdAt: '2026-09-20T02:12:31' },
+        { role: 'assistant', blocks: appendText([], '集群正常。') },
+      ],
+      followups: [],
+      onFollowup: vi.fn(),
+    });
+
+    expect(screen.queryByTestId('ai-followups')).not.toBeInTheDocument();
   });
 });
