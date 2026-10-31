@@ -48,6 +48,8 @@ function observeLoginRedirect() {
   vi.stubGlobal('window', {
     location: {
       origin: originalWindow.location.origin,
+      pathname: '/clusters',
+      search: '?tab=overview',
       set href(path: string) {
         redirect(path);
       },
@@ -181,7 +183,9 @@ describe('API client response contract', () => {
     try {
       await expect(client.get('/clusters')).rejects.toMatchObject({ response: { status: 401 } });
       expect(readAuthSession()).toEqual({ user: null, userId: null, admin: null });
-      expect(navigation.redirect).toHaveBeenCalledExactlyOnceWith('/login');
+      expect(navigation.redirect).toHaveBeenCalledExactlyOnceWith(
+        '/login?redirect=%2Fclusters%3Ftab%3Doverview',
+      );
     } finally {
       navigation.restore();
     }
