@@ -511,16 +511,15 @@ describe('Consumer page', () => {
 
   it('reports a failed consumer group deletion instead of staying silent', async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation((config) => {
-      void config.onOk?.();
-      return { destroy: vi.fn(), update: vi.fn() } as unknown as ReturnType<typeof Modal.confirm>;
-    });
     vi.mocked(consumerService.deleteConsumerGroup).mockRejectedValue(new Error('network error'));
     vi.mocked(consumerService.listConsumerGroupPage).mockResolvedValue(groupPage([group]));
     renderWithProviders(<ConsumerPage />);
 
     const row = await screen.findByRole('row', { name: /remote-cg/ });
     await user.click(within(row).getByRole('button', { name: /删除/ }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: /^删\s*除$/ }),
+    );
 
     await waitFor(() =>
       expect(consumerService.deleteConsumerGroup).toHaveBeenCalledWith('remote-cg', 'instance-1'),
@@ -530,7 +529,6 @@ describe('Consumer page', () => {
     expect(await screen.findByText('删除消费组失败，请稍后重试')).toBeInTheDocument();
     // The group still exists on the server, so the row must still be listed.
     expect(await screen.findByRole('row', { name: /remote-cg/ })).toBeInTheDocument();
-    confirmSpy.mockRestore();
   });
 
   it('moves back from an emptied last consumer group page after batch deletion', async () => {
@@ -2302,7 +2300,6 @@ describe('Consumer page', () => {
       retryMaxTimes: 16,
       consumeEnable: false,
     });
-    const confirm = vi.spyOn(Modal, 'confirm');
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderWithProviders(<ConsumerPage />);
     const row = await screen.findByRole('row', { name: /remote-cg/ });
@@ -2316,7 +2313,9 @@ describe('Consumer page', () => {
     expect(within(dialog).getByRole('switch', { name: '启用消费' })).toBeChecked();
     await user.click(within(dialog).getByRole('switch', { name: '启用消费' }));
     await user.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
-    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(
+      (await screen.findByRole('button', { name: '确认修改' })).closest('[role="dialog"]'),
+    ).toBeInTheDocument();
     expect(consumerService.updateConsumerGroupSettings).not.toHaveBeenCalled();
     await user.click(await screen.findByRole('button', { name: '确认修改' }));
     await waitFor(() =>
