@@ -415,6 +415,39 @@ describe('Consumer confirmation ownership', () => {
       expect(screen.getByRole('row', { name: /orders-consumer/ })).toBeInTheDocument();
     },
   );
+  it.each(['current', 'instance', 'navigation'] as const)(
+    'reports a rejected delete only to its current owner: %s',
+    async (departure) => {
+      const error = vi.spyOn(message, 'error');
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      vi.mocked(consumerService.deleteConsumerGroup).mockImplementationOnce(async () => {
+        await gate;
+        throw new Error('delete failed');
+      });
+      renderPage();
+      const dialog = await openDelete('single');
+      await userEvent.setup().click(within(dialog).getByRole('button', { name: /^删 ?除$/ }));
+      await waitFor(() => expect(consumerService.deleteConsumerGroup).toHaveBeenCalledTimes(1));
+      if (departure !== 'current') {
+        await act(async () => {
+          if (departure === 'instance') await navigate('/instance/instance-b/consumer');
+          else await navigate(-1);
+        });
+        if (departure === 'instance') await screen.findByRole('row', { name: /orders-consumer/ });
+      }
+      vi.mocked(consumerService.listConsumerGroupPage).mockClear();
+      await act(async () => {
+        release();
+        await gate;
+      });
+      if (departure === 'current') expect(error).toHaveBeenCalledTimes(1);
+      else expect(error).not.toHaveBeenCalled();
+      expect(consumerService.listConsumerGroupPage).not.toHaveBeenCalled();
+    },
+  );
   describe.each(['instance', 'navigation'] as const)(
     'after %s departure during a confirmed deletion refresh',
     (departure) => {
