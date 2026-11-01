@@ -32,6 +32,7 @@ import {
   metricSeriesFullLabel,
   metricSeriesIdentity,
   metricSeriesLabel,
+  metricsQueryHistoryStorageKey,
   saveMetricsQueryHistory,
   stableLabelsText,
   summarizeMetricData,
@@ -71,6 +72,9 @@ const metricData: MetricData = {
   ],
   warnings: ['partial response'],
 };
+
+/** The account the persisted-history cases run as. */
+const owner = { userId: 7, username: 'alice' };
 
 const createHistoryEntry = (
   overrides: Partial<ReturnType<typeof createMetricsQueryHistoryEntry>>,
@@ -366,11 +370,11 @@ describe('metrics explorer diagnostics', () => {
 
     expect(merged).toHaveLength(METRICS_QUERY_HISTORY_LIMIT);
     expect(merged.find((entry) => entry.queriedAt === 1)).toBeUndefined();
-    expect(saveMetricsQueryHistory(merged)).toBe(true);
-    expect(localStorage.getItem(METRICS_QUERY_HISTORY_STORAGE_KEY)).not.toContain('password');
-    expect(loadMetricsQueryHistory()[0].queriedAt).toBe(112);
-    expect(clearMetricsQueryHistory()).toBe(true);
-    expect(loadMetricsQueryHistory()).toEqual([]);
+    expect(saveMetricsQueryHistory(merged, owner)).toBe(true);
+    expect(localStorage.getItem(metricsQueryHistoryStorageKey(owner))).not.toContain('password');
+    expect(loadMetricsQueryHistory(owner)[0].queriedAt).toBe(112);
+    expect(clearMetricsQueryHistory(owner)).toBe(true);
+    expect(loadMetricsQueryHistory(owner)).toEqual([]);
   });
 
   it.each([false, true])(
@@ -391,8 +395,8 @@ describe('metrics explorer diagnostics', () => {
       );
       expect(merged).toEqual([scoped, unscoped]);
       localStorage.clear();
-      expect(saveMetricsQueryHistory(merged)).toBe(true);
-      expect(loadMetricsQueryHistory()).toEqual([scoped, unscoped]);
+      expect(saveMetricsQueryHistory(merged, owner)).toBe(true);
+      expect(loadMetricsQueryHistory(owner)).toEqual([scoped, unscoped]);
     },
   );
 
@@ -409,10 +413,10 @@ describe('metrics explorer diagnostics', () => {
       id: 'rocketmq5-native:message_in_tps:1h:default:global:1',
     };
     localStorage.clear();
-    saveMetricsQueryHistory([legacy]);
+    saveMetricsQueryHistory([legacy], owner);
     const newer = createHistoryEntry({ instanceId: 'global', queriedAt: 2 });
 
-    expect(mergeMetricsQueryHistory(loadMetricsQueryHistory(), newer)).toEqual([newer]);
+    expect(mergeMetricsQueryHistory(loadMetricsQueryHistory(owner), newer)).toEqual([newer]);
   });
 
   it('gives unscoped and literal global queries different IDs at the same timestamp Test', () => {
@@ -465,9 +469,9 @@ describe('metrics explorer diagnostics', () => {
     const merged = mergeMetricsQueryHistory([first, second], incoming);
 
     expect(merged).toEqual([incoming, first, second]);
-    expect(saveMetricsQueryHistory(merged)).toBe(true);
-    expect(loadMetricsQueryHistory()).toEqual(merged);
-    clearMetricsQueryHistory();
+    expect(saveMetricsQueryHistory(merged, owner)).toBe(true);
+    expect(loadMetricsQueryHistory(owner)).toEqual(merged);
+    clearMetricsQueryHistory(owner);
   });
 
   it('deduplicatesBeforeApplyingACustomHistoryLimitTest', () => {
@@ -486,9 +490,36 @@ describe('metrics explorer diagnostics', () => {
   // the try/catch now lives, so this only asserts the malformed-payload path.
   it('ignores malformed persisted history entries', () => {
     localStorage.clear();
-    localStorage.setItem(METRICS_QUERY_HISTORY_STORAGE_KEY, '{"broken"');
+    localStorage.setItem(metricsQueryHistoryStorageKey(owner), '{"broken"');
 
-    expect(loadMetricsQueryHistory()).toEqual([]);
+    expect(loadMetricsQueryHistory(owner)).toEqual([]);
+  });
+
+  // #5982: query history is private to the account that ran the query. A second account on the
+  // same browser must start empty instead of inheriting the previous account's PromQL, profile
+  // names, instance ids and data-source keys.
+  it('does not hand one account the query history of another', () => {
+    localStorage.clear();
+    const ownerA = { userId: 7, username: 'alice' };
+    const ownerB = { userId: 8, username: 'bob' };
+    const aliceEntry = createHistoryEntry({ queriedAt: 11 });
+    const bobEntry = createHistoryEntry({ rangeId: '6h', rangeLabel: '6h', queriedAt: 22 });
+
+    expect(metricsQueryHistoryStorageKey(ownerA)).not.toBe(metricsQueryHistoryStorageKey(ownerB));
+    expect(metricsQueryHistoryStorageKey(ownerA)).not.toBe(METRICS_QUERY_HISTORY_STORAGE_KEY);
+
+    saveMetricsQueryHistory([aliceEntry], ownerA);
+    expect(loadMetricsQueryHistory(ownerA)).toEqual([aliceEntry]);
+
+    expect(loadMetricsQueryHistory(ownerB)).toEqual([]);
+
+    saveMetricsQueryHistory([bobEntry], ownerB);
+    expect(loadMetricsQueryHistory(ownerB)).toEqual([bobEntry]);
+    expect(loadMetricsQueryHistory(ownerA)).toEqual([aliceEntry]);
+
+    clearMetricsQueryHistory(ownerB);
+    expect(loadMetricsQueryHistory(ownerB)).toEqual([]);
+    expect(loadMetricsQueryHistory(ownerA)).toEqual([aliceEntry]);
   });
 });
 
